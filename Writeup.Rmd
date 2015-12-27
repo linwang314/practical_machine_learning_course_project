@@ -1,0 +1,142 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Lin Wang"
+date: "December 26, 2015"
+output: html_document
+---
+
+# Introduction  
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. This project uses data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants that were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The objective is to use machine learning algorithm to predict the manner in which the participants did the exercise, the "classe" variable in the training set. I started with some configuration.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+library(ggplot2)
+library(caret)
+library(rpart)
+library(randomForest)
+library(rattle)
+library(rpart.plot)
+options(scipen = 5, digits = 4)
+```
+
+# Getting and Loading Data  
+
+The data for this project as well as additional information come from [this source] (http://groupware.les.inf.puc-rio.br/har). The author acknowledge the generosity of the data resource in allowing their data to be used for this project.
+
+```{r, cache=TRUE}
+trainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(trainurl, na.strings = c(NA, "", "#DIV/0!"))
+testing <- read.csv(testurl, na.strings = c(NA, "", "#DIV/0!"))
+```
+
+# Cleaning and Preprocessing  
+
+The following processing and transformation were performed prior to further data analysis and prediction:  
+1. remove the first column so that the record number does not interfere with prediction  
+2. identify and remove near zero variance predictors  
+3. remove predictors with more than 50% values as NAs  
+4. subset the testing data to have the same predictors with the training data  
+5. coerce the factor variable in the testing data to have the same level with the training data
+
+```{r, cache=TRUE}
+## remove the first column (row number)
+training <- training[ , -1]
+## identify and remove near zero variance predictors
+nzv <- nearZeroVar(training)
+training <- training[ , -nzv]
+## remove predictors with more than 50% NAs 
+NAs <- vector(mode = "integer", length = 0L)
+for (i in 1 : ncol(training)) {
+  if (sum(is.na(training[ , i]))/nrow(training) > 0.5) {
+    NAs <- c(NAs, i)
+  }
+}
+training <- training[ , -NAs]
+## make test data consistent with training
+clean <- colnames(training[ ,-58])
+clean <- c(clean, "problem_id")
+testing <- testing[ , clean]
+## coerce the factor variables to have the same levels
+levels(testing$cvtd_timestamp) <- levels(training$cvtd_timestamp)
+```
+
+# Cross Validation Strategy  
+
+K-fold subsetting was used for cross validation. A data frame is initialized to store accuracy of the running one algorithm for k times and estimate the error of that particular algorithm.  
+
+```{r, cache=TRUE}
+## k-fold cross validation
+set.seed(103)
+k = 10
+folds <- createFolds(training$classe, k = k, list = TRUE, returnTrain = FALSE)
+## initialize a data frame to store prediction accuracy
+accuracy <- data.frame(rpart = numeric(k), rf = numeric(k))
+```
+
+# Machine Learning Algorithms  
+
+Two algorithms (decision tree and random forest) were evaluated based on their performance.  
+
+## Prediction with Decision Tree  
+
+```{r, cache=TRUE}
+for (i in 1:k) {
+  subtrain <- training[-folds[[i]], ]
+  subtest <- training[folds[[i]], ]
+  modfit <- rpart(classe ~ ., data = subtrain, method = "class")
+  cm <- confusionMatrix(subtest$classe, predict(modfit, subtest, type = "class"))
+  accuracy[i,1] <- cm$overall[1]
+}
+
+```
+
+Next we visualize the result of the last decision tree model in the above loop:  
+
+```{r, cache=TRUE}
+fancyRpartPlot(modfit)
+plot(cm$table, col = cm$byClass, main = paste("Decision Tree Confusion Matrix: Accuracy =", round(cm$overall[1], 4)))
+```
+
+## Prediction with Random Forest  
+
+```{r, cache=TRUE}
+for (i in 1:k) {
+  subtrain <- training[-folds[[i]], ]
+  subtest <- training[folds[[i]], ]
+  modfit <- randomForest(classe ~ ., data = subtrain)
+  cm <- confusionMatrix(subtest$classe, predict(modfit, subtest, type = "class"))
+  accuracy[i,2] <- cm$overall[1]
+}
+
+```
+
+Similarly, the result of the last random forest model is visulized below:  
+
+```{r, cache=TRUE}
+plot(modfit)
+plot(cm$table, col = cm$byClass, main = paste("Random Forest Confusion Matrix: Accuracy =", round(cm$overall[1], 4)))
+```
+
+## Accuracy Comparison and Error Estimation  
+
+```{r}
+accuracy
+```
+
+```{r, echo=FALSE}
+err_rpart <- 1 - mean(accuracy$rpart)
+err_rf <- 1 - mean(accuracy$rf)
+```
+
+We can see clearly that the random forest algorithm overall generates a much better prediction accuracy than the decision tree algorithm. From the k-fold cross validation strategy, the average out of sample error is `r err_rpart` for of the decision tree model and `r err_rf` for random forest model.  
+
+# Final Model and Prediction  
+
+Based on the above analysis, the final model using random forest algorthm is established on the complete training data set and used to predict the testing data set.  
+
+```{r}
+modfinal <- randomForest(classe ~ ., data = training)
+answer <- predict(modfinal, testing, type = "class")
+answer
+```
