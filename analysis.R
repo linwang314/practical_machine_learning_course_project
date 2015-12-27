@@ -29,6 +29,10 @@ clean <- colnames(training[ ,-58])
 clean <- c(clean, "problem_id")
 testing <- testing[ , clean]
 ## coerce the variables in testing to be same types with training
+a <- sapply(training, class)
+b <- sapply(testing, class)
+a == b ## all TRUE
+identical(a, b) ## FALSE: indicating there are factor variables with different levels
 for (i in 1:length(testing)) {
   class(testing[ ,i]) <- class(training[ ,i])
 }
